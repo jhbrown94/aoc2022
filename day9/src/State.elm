@@ -17,14 +17,12 @@ addY delta point =
 
 
 type alias State =
-    { head : Point
-    , tail : Point
-    }
+    List Point
 
 
-start : State
-start =
-    { head = Point 0 0, tail = Point 0 0 }
+start : Int -> State
+start n =
+    List.repeat n (Point 0 0)
 
 
 type Move
@@ -34,53 +32,84 @@ type Move
     | Right
 
 
+apply : Move -> State -> State
 apply move state =
     let
-        headMoved =
+        head =
+            List.head state |> Maybe.withDefault (Point 0 0)
+
+        rest =
+            List.drop 1 state
+
+        newHead =
             case move of
                 Up ->
-                    { state | head = addY 1 state.head }
+                    addY 1 head
 
                 Down ->
-                    { state | head = addY -1 state.head }
+                    addY -1 head
 
                 Left ->
-                    { state | head = addX -1 state.head }
+                    addX -1 head
 
                 Right ->
-                    { state | head = addX 1 state.head }
+                    addX 1 head
 
-        delta =
-            { x = headMoved.head.x - headMoved.tail.x, y = headMoved.head.y - headMoved.tail.y }
+        helper follower ( leader, accum ) =
+            let
+                deltaX =
+                    leader.x - follower.x
+
+                adjustX =
+                    if deltaX /= 0 then
+                        deltaX // abs deltaX
+
+                    else
+                        0
+
+                deltaY =
+                    leader.y - follower.y
+
+                adjustY =
+                    if deltaY /= 0 then
+                        deltaY // abs deltaY
+
+                    else
+                        0
+            in
+            case ( abs deltaX, abs deltaY ) of
+                ( 2, _ ) ->
+                    ( { x = follower.x + adjustX, y = follower.y + adjustY }, leader :: accum )
+
+                ( _, 2 ) ->
+                    ( { x = follower.x + adjustX, y = follower.y + adjustY }, leader :: accum )
+
+                _ ->
+                    ( follower, leader :: accum )
     in
-    case ( abs delta.x, abs delta.y ) of
-        ( 2, d ) ->
-            { headMoved | tail = { x = headMoved.tail.x + delta.x // 2, y = headMoved.tail.y + delta.y } }
-
-        ( d, 2 ) ->
-            { headMoved | tail = { x = headMoved.tail.x + delta.x, y = headMoved.tail.y + delta.y // 2 } }
-
-        _ ->
-            headMoved
+    List.foldl helper ( newHead, [] ) rest |> (\( last, accum ) -> last :: accum |> List.reverse) |> Debug.log "New state:"
 
 
-computePart1 moveList =
+compute size moveList =
     moveList
         |> List.foldl
             (\move ( state, tailSet ) ->
                 let
                     next =
                         apply move state
+
+                    tail =
+                        next |> List.reverse |> List.head |> Maybe.withDefault (Point 0 0)
                 in
-                ( next, Set.insert ( next.tail.x, next.tail.y ) tailSet )
+                ( next, Set.insert ( tail.x, tail.y ) tailSet )
             )
-            ( start, Set.singleton ( start.tail.x, start.tail.y ) )
+            ( start size, Set.singleton ( 0, 0 ) )
         |> Tuple.second
         |> Set.size
 
 
-parseCommands =
-    Data.data
+parseCommands data =
+    data
         |> String.split "\n"
         |> List.map
             (\line ->
@@ -115,4 +144,8 @@ parseCommands =
 
 
 part1Result =
-    computePart1 parseCommands
+    compute 2 (parseCommands Data.data)
+
+
+part2Result =
+    compute 10 (parseCommands Data.data)
