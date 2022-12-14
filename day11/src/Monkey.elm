@@ -1,6 +1,7 @@
 module Monkey exposing (..)
 
 import Dict exposing (Dict)
+import List.Extra as List
 
 
 type MonkeyId
@@ -133,13 +134,34 @@ monkeyIdToInt (MonkeyId v) =
     v
 
 
-initialConfiguration : List Monkey -> ( List Monkey, ItemMap )
-initialConfiguration monkeys =
-    ( monkeys, monkeys |> List.map (\monkey -> ( monkey.id |> monkeyIdToInt, { items = monkey.startsWith, count = 0 } )) |> Dict.fromList )
+type alias Configuration =
+    { doRelief : Bool
+    , monkeys : List Monkey
+    , itemMap : ItemMap
+    , modulus : Int
+    }
 
 
-run n monkeys =
-    doRounds n (initialConfiguration monkeys) |> Tuple.second
+initialConfiguration : Bool -> List Monkey -> Configuration
+initialConfiguration doRelief monkeys =
+    { doRelief = doRelief
+    , monkeys = monkeys
+    , itemMap = monkeys |> List.map (\monkey -> ( monkey.id |> monkeyIdToInt, { items = monkey.startsWith, count = 0 } )) |> Dict.fromList
+    , modulus =
+        monkeys
+            |> List.map (.test >> .divisibleBy)
+            |> List.unique
+            |> List.foldl (*) 1
+    }
+
+
+run doRelief n monkeys =
+    doRounds n (initialConfiguration doRelief monkeys) |> .itemMap
+
+
+init : Bool -> List Monkey -> Configuration
+init doRelief monkeys =
+    initialConfiguration doRelief monkeys
 
 
 doRounds n configuration =
@@ -150,12 +172,14 @@ doRounds n configuration =
         doRounds (n - 1) (advance configuration)
 
 
-advance ( monkeys, itemMap ) =
-    ( monkeys, monkeys |> List.foldl advanceMonkey itemMap )
+advance configuration =
+    { configuration
+        | itemMap = configuration.monkeys |> List.foldl (advanceMonkey configuration) configuration.itemMap
+    }
 
 
-advanceMonkey : Monkey -> ItemMap -> ItemMap
-advanceMonkey monkey itemMap =
+advanceMonkey : Configuration -> Monkey -> ItemMap -> ItemMap
+advanceMonkey config monkey itemMap =
     let
         monkeyRecord =
             case itemMap |> Dict.get (monkey.id |> monkeyIdToInt) of
@@ -166,21 +190,22 @@ advanceMonkey monkey itemMap =
                     Debug.todo "No monkeyrecord"
     in
     monkeyRecord.items
-        |> List.foldl (advanceItem monkey monkeyRecord)
+        |> List.foldl (advanceItem config monkey)
             (itemMap |> Dict.insert (monkey.id |> monkeyIdToInt) { items = [], count = monkeyRecord.count + List.length monkeyRecord.items })
 
 
-advanceItem : Monkey -> MonkeyRecord -> ItemWorry -> ItemMap -> ItemMap
-advanceItem monkey monkeyRecord item itemMap =
+advanceItem : Configuration -> Monkey -> ItemWorry -> ItemMap -> ItemMap
+advanceItem config monkey item itemMap =
     let
-        _ =
-            Debug.log "MONKEY ID: " monkey.id
-
         worry =
-            monkeyInspects item monkey.operation |> applyRelief |> Debug.log "Worry "
+            monkeyInspects config.modulus item monkey.operation |> applyRelief
 
         applyRelief (ItemWorry w) =
-            w // 3 |> ItemWorry
+            if config.doRelief then
+                w // 3 |> ItemWorry
+
+            else
+                w |> ItemWorry
 
         target =
             doThrow worry
@@ -202,16 +227,16 @@ advanceItem monkey monkeyRecord item itemMap =
 
                 Nothing ->
                     Debug.todo "No target monkey record"
+
+        -- _ =
+        --     Debug.log "Throw:" (Debug.toString item ++ " from " ++ Debug.toString monkey.id ++ " to " ++ Debug.toString targetInt ++ " as " ++ Debug.toString worry)
     in
-    itemMap |> Dict.insert targetInt { targetRecord | items = worry :: targetRecord.items }
+    itemMap |> Dict.insert targetInt { targetRecord | items = targetRecord.items ++ [ worry ] }
 
 
-monkeyInspects : ItemWorry -> Operation -> ItemWorry
-monkeyInspects (ItemWorry worry) operation =
+monkeyInspects : Int -> ItemWorry -> Operation -> ItemWorry
+monkeyInspects modulus (ItemWorry worry) operation =
     let
-        _ =
-            Debug.log "op" operation
-
         l =
             case operation.left of
                 IntExpr v ->
@@ -236,7 +261,7 @@ monkeyInspects (ItemWorry worry) operation =
                 Add ->
                     (+)
     in
-    op l r |> ItemWorry |> Debug.log "Monkey inspected"
+    op l r |> modBy modulus |> ItemWorry
 
 
 monkeyBusiness itemMap =
